@@ -252,6 +252,20 @@
   }
   @media (max-width:720px){ .fact,.fact+.fact{padding:18px 20px;border:1px solid var(--line)} .nav a:not(.keep){display:none} }
   @media (prefers-reduced-motion:reduce){ .btn:hover,.steps li:hover,.gsteps li:hover{transform:none} }
+
+  /* Wallet chooser */
+  .wch-bg{position:fixed;inset:0;z-index:9000;display:grid;place-items:center;padding:16px;background:rgba(61,33,27,.45);backdrop-filter:blur(4px)}
+  .wch{width:min(420px,100%);background:#fff;border-radius:24px;padding:22px;box-shadow:0 30px 80px rgba(61,33,27,.35);display:flex;flex-direction:column;gap:10px}
+  .wch-t{font:800 1.5rem "Baloo 2",sans-serif;color:var(--choc)}
+  .wch-s{margin:0 0 6px;color:var(--soft);font-size:.95rem}
+  .wch-o{all:unset;cursor:pointer;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:var(--cream)}
+  .wch-o:hover,.wch-o:focus-visible{border-color:var(--berry);outline:none;box-shadow:0 0 0 3px rgba(232,88,138,.2)}
+  .wch-o span{flex:1;display:flex;flex-direction:column;gap:2px}
+  .wch-o b{color:var(--choc)}
+  .wch-o small{color:var(--soft);font-size:.85rem;line-height:1.35}
+  .wch-o i{font-style:normal;font-weight:800;font-size:1.4rem;color:var(--berry)}
+  .wch-o.wc{background:linear-gradient(135deg,#fff,#fde1ea)}
+  .wch-x{all:unset;cursor:pointer;text-align:center;padding:10px;font-weight:700;color:var(--soft)}
 </style>
 </head>
 <body>
@@ -338,7 +352,7 @@
       </div>
       <div class="msg" id="cl-status" role="status"></div>
       <div class="links" id="dl" hidden></div>
-      <small>Claiming costs a little BNB for gas. On a phone, open this page inside your wallet app's browser (MetaMask or Trust Wallet).</small>
+      <small>Claiming costs a little BNB for gas. Connect with this browser's wallet, or choose WalletConnect to use Trust, Bitget, MetaMask, OKX and other wallet apps from any browser.</small>
     </section>
 
 
@@ -515,6 +529,7 @@ function noWallet(){
 }
 
 $("mine-btn").onclick = async () => {
+  if (window.__wcProv) { try { await window.__wcProv.disconnect(); } catch {} window.__wcProv = null; window.__walletPick = null; }
   if (!ready()) return;
   const eth = await getEth(); if (!eth){ noWallet(); return; }
   try { const acc = await eth.request({method: "eth_requestAccounts"}); $("ca2").value = acc[0]; $("chk").click(); }
@@ -551,6 +566,59 @@ $("clm").onclick = async () => {
     cl(e.code === "ACTION_REJECTED" || e.code === 4001 ? "Transaction cancelled." : "Claim failed: " + errText(e), "err");
   } finally { $("clm").disabled = false; }
 };
+</script>
+<script>
+/* Connect any wallet: the wallet built into this browser, or WalletConnect (Trust, Bitget, MetaMask, OKX and 300+
+   others, by QR code on a computer or by opening the wallet app on a phone). Used by Claim and by the Arena. */
+const WC_PROJECT_ID = "2e558566d92d40723bffdc10f60fd737";
+window.__wcProv = null; window.__walletPick = null;
+async function wcProvider(){
+  if (window.__wcProv && window.__wcProv.connected) return window.__wcProv;
+  const mod = await import("https://esm.sh/@walletconnect/ethereum-provider@2.17.2");
+  const EP = mod.EthereumProvider || mod.default;
+  const p = await EP.init({
+    projectId: WC_PROJECT_ID, chains: [56], optionalChains: [56], showQrModal: true,
+    rpcMap: { 56: "https://bsc-dataseed.binance.org" },
+    methods: ["eth_sendTransaction", "personal_sign", "eth_signTypedData_v4", "wallet_switchEthereumChain"],
+    metadata: { name: "Baby Tart", description: "Hold Baby Tart, earn Tartswap", url: location.origin, icons: [location.origin + "/favicon.ico"] },
+    qrModalOptions: { themeMode: "light", themeVariables: { "--wcm-accent-color": "#e8588a", "--wcm-z-index": "9999" } }
+  });
+  if (!p.connected) await p.connect();
+  p.on && p.on("accountsChanged", function (a) { window.onWalletAccounts && window.onWalletAccounts(a); });
+  p.on && p.on("disconnect", function () { window.__wcProv = null; window.__walletPick = null; });
+  window.__wcProv = p;
+  return p;
+}
+function chooseWallet(){
+  return new Promise(function (resolve) {
+    const has = !!window.ethereum;
+    const bg = document.createElement("div"); bg.className = "wch-bg"; bg.setAttribute("role", "dialog"); bg.setAttribute("aria-modal", "true"); bg.setAttribute("aria-label", "Connect a wallet");
+    bg.innerHTML = '<div class="wch"><b class="wch-t">Connect a wallet</b><p class="wch-s">Choose how you want to connect. Nothing is sent until you confirm in your wallet.</p>' +
+      (has ? '<button type="button" class="wch-o" data-k="injected"><span><b>This browser\'s wallet</b><small>MetaMask, or the browser inside your wallet app</small></span><i>›</i></button>' : "") +
+      '<button type="button" class="wch-o wc" data-k="wc"><span><b>WalletConnect</b><small>Trust, Bitget, MetaMask, OKX and 300+ wallets. Scan a QR code, or open your wallet app on your phone.</small></span><i>›</i></button>' +
+      '<button type="button" class="wch-x" data-k="">Cancel</button></div>';
+    function done(k){ bg.remove(); resolve(k); }
+    bg.addEventListener("click", function (e) { const b = e.target.closest("button"); if (b) done(b.dataset.k || null); else if (e.target === bg) done(null); });
+    document.addEventListener("keydown", function esc(e){ if (e.key === "Escape"){ document.removeEventListener("keydown", esc); done(null); } });
+    document.body.appendChild(bg);
+    const first = bg.querySelector(".wch-o"); first && first.focus();
+  });
+}
+getEth = async function(){
+  if (window.__walletPick === "wc" && window.__wcProv && window.__wcProv.connected) return window.__wcProv;
+  if (window.__walletPick === "injected" && window.ethereum) return window.ethereum;
+  const k = await chooseWallet();
+  if (!k) return null;
+  if (k === "injected") { window.__walletPick = "injected"; return window.ethereum; }
+  try {
+    const p = await wcProvider(); window.__walletPick = "wc"; return p;
+  } catch (e) {
+    const m = (e && e.message) || "";
+    if (typeof cl === "function") cl(/reject|closed|cancel/i.test(m) ? "Wallet connection was cancelled." : "WalletConnect could not start: " + m.slice(0, 120), "err");
+    return null;
+  }
+};
+noWallet = function(){ if (typeof cl === "function") cl("No wallet connected. Tap the button again and choose WalletConnect to use any wallet app.", ""); };
 </script>
 <script>
 (function(){
@@ -837,7 +905,7 @@ async function end() {
     try {
       say("Sign the message in your wallet to submit your score. It is free.");
       var msg = "Baby Tart Arena\nSession: " + useSid + "\nGame: " + game + "\nScore: " + sc;
-      var sig = await window.ethereum.request({ method: "personal_sign", params: [ethers.hexlify(ethers.toUtf8Bytes(msg)), acct] });
+      var sig = await (await getEth()).request({ method: "personal_sign", params: [ethers.hexlify(ethers.toUtf8Bytes(msg)), acct] });
       var r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "score", sid: useSid, score: sc, sig: sig }) });
       var j = await r.json(); if (!r.ok) throw new Error(j.error || "Rejected");
       best[game] = sc; say("Score " + sc + " submitted.", "ok");
@@ -932,7 +1000,8 @@ async function connect() {
   } catch (e) { say(e && e.code === 4001 ? "Wallet connection was cancelled." : "Could not connect: " + errText(e), "err"); }
 }
 g$("a-conn").onclick = connect;
-if (window.ethereum && window.ethereum.on) window.ethereum.on("accountsChanged", function (a) { acct = a[0] || null; g$("a-conn").textContent = acct ? short(acct) : "Connect wallet"; best = { run: 0, stack: 0 }; st.joined = false; refreshChain(); });
+window.onWalletAccounts = function (a) { acct = a[0] || null; g$("a-conn").textContent = acct ? short(acct) : "Connect wallet"; best = { run: 0, stack: 0 }; st.joined = false; refreshChain(); };
+if (window.ethereum && window.ethereum.on) window.ethereum.on("accountsChanged", function (a) { window.onWalletAccounts(a); });
 
 async function join() {
   var eth = await getEth(); if (!eth || !acct) { say("Connect your wallet first.", "err"); return; }
