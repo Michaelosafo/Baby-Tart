@@ -568,7 +568,11 @@ $("copy").onclick = async () => {
 
 function cl(t, c){ const s = $("cl-status"); s.className = "msg " + (c || ""); s.textContent = t; }
 function ready(){ if (typeof ethers === "undefined"){ cl("Could not load the wallet library. Refresh the page.", "err"); return false; } return true; }
-function addr(){ const a = $("ca2").value.trim(); try { return ethers.getAddress(a.toLowerCase()); } catch { cl("Enter a valid wallet address.", "err"); return null; } }
+// A connected wallet shows shortened (0x1234…abcd); the full address is kept on the field.
+function setWallet(a){ const f = $("ca2"); f.dataset.full = a; f.value = a.slice(0, 6) + "…" + a.slice(-4); f.title = a; }
+$("ca2").addEventListener("input", function(){ delete this.dataset.full; this.removeAttribute("title"); });
+$("ca2").addEventListener("focus", function(){ if (this.dataset.full) this.select(); });
+function addr(){ const f = $("ca2"); const a = (f.dataset.full || f.value).trim(); try { return ethers.getAddress(a.toLowerCase()); } catch { cl("Enter a valid wallet address.", "err"); return null; } }
 function withTimeout(p, ms){ return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Timed out")), ms))]); }
 async function readPending(a){
   let last;
@@ -611,7 +615,7 @@ $("mine-btn").onclick = async () => {
   if (window.__wcProv) { try { await window.__wcProv.disconnect(); } catch {} window.__wcProv = null; window.__walletPick = null; }
   if (!ready()) return;
   const eth = await getEth(); if (!eth){ noWallet(); return; }
-  try { const acc = await eth.request({method: "eth_requestAccounts"}); $("ca2").value = acc[0]; $("chk").click(); }
+  try { const acc = await eth.request({method: "eth_requestAccounts"}); setWallet(acc[0]); $("chk").click(); }
   catch (e) { cl(e && e.code === 4001 ? "Wallet connection was cancelled." : "Could not connect: " + errText(e), "err"); }
 };
 
@@ -701,7 +705,7 @@ async function useWalletConnect(){
   try { const p = await wcProvider(); window.__walletPick = "wc"; const a = await p.request({ method: "eth_accounts" }); return (a && a[0]) || null; }
   catch (e) { const m = (e && e.message) || ""; if (typeof cl === "function") cl(/reject|closed|cancel/i.test(m) ? "Wallet connection was cancelled." : "WalletConnect could not start: " + m.slice(0, 120), "err"); return null; }
 }
-document.getElementById("wc-btn").onclick = async function(){ const a = await useWalletConnect(); if (a){ document.getElementById("ca2").value = a; document.getElementById("chk").click(); } };
+document.getElementById("wc-btn").onclick = async function(){ const a = await useWalletConnect(); if (a){ setWallet(a); document.getElementById("chk").click(); } };
 document.getElementById("a-wc").onclick = async function(){ const a = await useWalletConnect(); if (a) document.getElementById("a-conn").click(); };
 noWallet = function(){ if (typeof cl === "function") cl("No wallet connected. Tap the button again and choose WalletConnect to use any wallet app.", ""); };
 </script>
